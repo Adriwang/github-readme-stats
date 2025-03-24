@@ -14,20 +14,66 @@ import {
  */
 
 /**
+ * Helper function to check if a file path is in the "addons/" folder or subfolders.
+ * @param {string} filePath - The file path to check.
+ * @returns {boolean} - True if the file path is in "addons/", false otherwise.
+ */
+const isIgnoredFile = (filePath) => {
+  return filePath.includes("addons/");
+};
+
+/**
  * Top languages fetcher object.
  *
  * @param {AxiosRequestHeaders} variables Fetcher variables.
  * @param {string} token GitHub token.
  * @returns {Promise<AxiosResponse>} Languages fetcher response.
  */
+const fetcher = (variables, token) => {
+  return request(
+    {
+      query: `
+      query userInfo($login: String!) {
+        user(login: $login) {
+          # fetch only owner repos & not forks
+          repositories(ownerAffiliations: OWNER, isFork: false, first: 100) {
+            nodes {
+              name
+              languages(first: 10, orderBy: {field: SIZE, direction: DESC}) {
+                edges {
+                  size
+                  node {
+                    color
+                    name
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      `,
+      variables,
+    },
+    {
+      Authorization: `token ${token}`,
+    },
+  );
+};
 
-// Files to be Ignored
-const IGNORED_PATHS = ["addons/"];
+/**
+ * @typedef {import("./types").TopLangData} TopLangData Top languages data.
+ */
 
-function isIgnoredFile(filePath) {
-    return IGNORED_PATHS.some((path) => filePath.includes(path));
-}
-
+/**
+ * Fetch top languages for a given username.
+ *
+ * @param {string} username GitHub username.
+ * @param {string[]} exclude_repo List of repositories to exclude.
+ * @param {number} size_weight Weightage to be given to size.
+ * @param {number} count_weight Weightage to be given to count.
+ * @returns {Promise<TopLangData>} Top languages data.
+ */
 const fetchTopLanguages = async (
   username,
   exclude_repo = [],
@@ -64,34 +110,38 @@ const fetchTopLanguages = async (
   let repoToHide = {};
 
   // populate repoToHide map for quick lookup
+  // while filtering out
   if (exclude_repo) {
     exclude_repo.forEach((repoName) => {
       repoToHide[repoName] = true;
     });
   }
 
-  // Filter out repositories to be hidden
+  // filter out repositories to be hidden
   repoNodes = repoNodes
     .sort((a, b) => b.size - a.size)
     .filter((name) => !repoToHide[name.name]);
 
   let repoCount = 0;
 
-  // Flatten the list and filter out files in the "addons/" folder
   repoNodes = repoNodes
     .filter((node) => node.languages.edges.length > 0)
+    // Flatten the list of language nodes and filter out files in "addons/" folder and its subfolders
     .reduce((acc, curr) => {
       const filteredEdges = curr.languages.edges.filter(edge => !isIgnoredFile(edge.node.name));
       return filteredEdges.concat(acc);
     }, [])
     .reduce((acc, prev) => {
+      // Get the size of the language (bytes)
       let langSize = prev.size;
 
-      // If we already have the language in the accumulator and the current language is the same
+      // If we already have the language in the accumulator and the current language name is the same
+      // add the size to the language size and increase repoCount.
       if (acc[prev.node.name] && prev.node.name === acc[prev.node.name].name) {
         langSize = prev.size + acc[prev.node.name].size;
         repoCount += 1;
       } else {
+        // Reset repoCount to 1 (language must exist in at least one repo to be detected)
         repoCount = 1;
       }
       return {

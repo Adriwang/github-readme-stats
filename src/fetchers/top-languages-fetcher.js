@@ -14,15 +14,6 @@ import {
  */
 
 /**
- * Helper function to check if a file path is in the "addons/" folder or subfolders.
- * @param {string} filePath - The file path to check.
- * @returns {boolean} - True if the file path is in "addons/", false otherwise.
- */
-const isIgnoredFile = (filePath) => {
-  return filePath.includes("addons/");
-};
-
-/**
  * Top languages fetcher object.
  *
  * @param {AxiosRequestHeaders} variables Fetcher variables.
@@ -126,22 +117,21 @@ const fetchTopLanguages = async (
 
   repoNodes = repoNodes
     .filter((node) => node.languages.edges.length > 0)
-    // Flatten the list of language nodes and filter out files in "addons/" folder and its subfolders
-    .reduce((acc, curr) => {
-      const filteredEdges = curr.languages.edges.filter(edge => !isIgnoredFile(edge.node.name));
-      return filteredEdges.concat(acc);
-    }, [])
+    // flatten the list of language nodes
+    .reduce((acc, curr) => curr.languages.edges.concat(acc), [])
     .reduce((acc, prev) => {
-      // Get the size of the language (bytes)
+      // get the size of the language (bytes)
       let langSize = prev.size;
 
-      // If we already have the language in the accumulator and the current language name is the same
+      // if we already have the language in the accumulator
+      // & the current language name is same as previous name
       // add the size to the language size and increase repoCount.
       if (acc[prev.node.name] && prev.node.name === acc[prev.node.name].name) {
         langSize = prev.size + acc[prev.node.name].size;
         repoCount += 1;
       } else {
-        // Reset repoCount to 1 (language must exist in at least one repo to be detected)
+        // reset repoCount to 1
+        // language must exist in at least one repo to be detected
         repoCount = 1;
       }
       return {
@@ -156,7 +146,7 @@ const fetchTopLanguages = async (
     }, {});
 
   Object.keys(repoNodes).forEach((name) => {
-    // Adjust the size based on the weights
+    // comparison index calculation
     repoNodes[name].size =
       Math.pow(repoNodes[name].size, size_weight) *
       Math.pow(repoNodes[name].count, count_weight);
